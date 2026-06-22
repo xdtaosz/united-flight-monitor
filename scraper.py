@@ -164,132 +164,128 @@ class UnitedScraper:
         ddir = self._settings.data_path / "debug"
         ddir.mkdir(parents=True, exist_ok=True)
 
-        async def dump_page(label):
+        async def dump(label):
             await page.screenshot(path=str(ddir / f"{label}.png"))
             html = await page.content()
             (ddir / f"{label}.html").write_text(html)
-            print(f"[DEBUG] Saved {label}.png + {label}.html")
 
         try:
-            print("[DEBUG] Navigating to united.com homepage...")
-            await page.goto(UNITED_BASE + "/en/us/", wait_until="domcontentloaded", timeout=30000)
-            await asyncio.sleep(8)
-            await dump_page("01_homepage")
+            # Step 1: Go to homepage and WAIT for React to fully boot
+            print("[DEBUG] Loading homepage...")
+            await page.goto(UNITED_BASE + "/en/us/", wait_until="networkidle", timeout=60000)
+            print(f"[DEBUG] Homepage loaded, URL: {page.url}")
+            # React SPA needs significant time to hydrate
+            await asyncio.sleep(10)
+            await dump("01_homepage")
 
+            # Step 2: Click "Sign in" - opens right-side panel
             print("[DEBUG] Clicking Sign in...")
-            signin = page.locator('button:has-text("Sign in")').first
-            if await signin.count() == 0:
-                signin = page.locator('a:has-text("Sign in")').first
-            if await signin.count() > 0:
-                await signin.click()
-            await asyncio.sleep(8)
-            await dump_page("02_signin_modal")
+            signin = None
+            for sel in ['button:has-text("Sign in")', 'a:has-text("Sign in")', 'text="Sign in"']:
+                el = page.locator(sel).first
+                if await el.count() > 0:
+                    signin = el
+                    print(f"[DEBUG] Found Sign in via: {sel}")
+                    break
+            if signin is None:
+                raise LoginError("Cannot find Sign in button")
+            await signin.click()
+            print("[DEBUG] Sign in clicked")
 
-            print("[DEBUG] Filling MP number...")
-            mp_field = page.locator('input[name="MileagePlusLogin.MPIDEmailField"]').first
-            if await mp_field.count() == 0:
-                mp_field = page.locator('input[type="email"]').first
-            if await mp_field.count() == 0:
-                mp_field = page.locator('input[name*="MPID"]').first
-            if await mp_field.count() > 0:
+            # Step 3: WAIT for right panel to slide in and render
+            await asyncio.sleep(12)
+            await dump("02_panel")
+
+            # Step 4: Check if password field already visible (session remembered)
+            pw_check = page.locator('input[type="password"]').first
+            pw_count = await pw_check.count()
+            print(f"[DEBUG] Password fields visible: {pw_count}")
+
+            if pw_count > 0:
+                # United remembered the MP number - go straight to password
+                print("[DEBUG] MP number remembered, filling password...")
+                await pw_check.fill(password)
+                await asyncio.sleep(2)
+                await dump("03_pw_filled_remembered")
+                # Submit
+                await pw_check.press("Enter")
+                await asyncio.sleep(5)
+            else:
+                # Need to enter MP number first
+                print("[DEBUG] Looking for MP number field...")
+                mp_field = page.locator('input[name*="MPID"], input[name*="MileagePlus"], input[type="email"]').first
+                if await mp_field.count() == 0:
+                    # Search all inputs
+                    for i in range(min(await page.locator("input").count(), 20)):
+                        inp = page.locator("input").nth(i)
+                        name = await inp.get_attribute("name") or ""
+                        typ = await inp.get_attribute("type") or ""
+                        print(f"[DEBUG]   input[{i}]: name={name} type={typ}")
+                        if "mp" in name.lower() or "mileage" in name.lower() or typ == "email":
+                            mp_field = inp
+                            break
+                if await mp_field.count() == 0:
+                    await dump("03_no_mp_field")
+                    raise LoginError("Cannot find MP number field")
+                
+                print("[DEBUG] Filling MP number...")
                 await mp_field.click()
                 await mp_field.fill(mp_number)
                 await asyncio.sleep(3)
-                await dump_page("03_mp_filled")
-            else:
-                raise LoginError("Cannot find MP number field")
+                await dump("03_mp_filled")
 
-            # Use keyboard Enter instead of button click
-            print("[DEBUG] Pressing Enter to submit MP...")
-            await asyncio.sleep(2)
-            await page.keyboard.press("Enter")
-            await asyncio.sleep(3)
-            await page.keyboard.press("Enter")
-            await asyncio.sleep(3)
+                # Click Continue or press Enter
+                print("[DEBUG] Submitting MP number...")
+                await mp_field.press("Enter")
+                await asyncio.sleep(5)
 
-            print("[DEBUG] Clicking Continue as fallback...")
-            for sel in [
-                'button:has-text("Continue")',
-                'button:has-text("continue")',
-                'button[type="submit"]',
-            ]:
-                btns = page.locator(sel)
-                for i in range(min(await btns.count(), 20)):
-                    btn = btns.nth(i)
-                    txt = (await btn.text_content() or "").strip().lower()
-                    if "continue" in txt or "next" in txt:
-                        try:
-                            await btn.click(timeout=5000)
-                            print(f"[DEBUG] Clicked button[{i}]: '{txt}'")
-                            break
-                        except Exception:
-                            try:
-                                await btn.click(force=True, timeout=5000)
-                                print(f"[DEBUG] Force-clicked button[{i}]: '{txt}'")
-                                break
-                            except Exception:
-                                pass
-                else:
-                    continue
-                break
-            await asyncio.sleep(8)
-            await dump_page("04_after_continue")
+                # Check for Continue button as fallback
+                cont = page.locator('button:has-text("Continue"), button:has-text("Next")').first
+                if await cont.count() > 0:
+                    await cont.click()
+                    await asyncio.sleep(5)
 
-            print("[DEBUG] Waiting for password field...")
-            pw_input = None
-            for attempt in range(8):
-                await asyncio.sleep(3)
-                all_inputs = page.locator("input")
-                count = await all_inputs.count()
-                print(f"[DEBUG] Attempt {attempt+1}: {count} inputs")
-                for i in range(count):
-                    inp = all_inputs.nth(i)
-                    typ = await inp.get_attribute("type") or ""
-                    name = await inp.get_attribute("name") or ""
-                    if typ == "password" or "password" in name.lower() or "passwd" in name.lower():
-                        print(f"[DEBUG]   input[{i}]: type={typ} name={name}")
-                        pw_input = inp
+                # Step 5: Wait for password field to appear
+                print("[DEBUG] Waiting for password field...")
+                pw_field = None
+                for attempt in range(10):
+                    await asyncio.sleep(3)
+                    pw = page.locator('input[type="password"]').first
+                    c = await pw.count()
+                    print(f"[DEBUG] Attempt {attempt+1}: password count={c}")
+                    if c > 0:
+                        pw_field = pw
                         break
-                if pw_input is not None:
-                    break
-                if attempt < 7:
-                    await dump_page(f"04b_wait_{attempt+1}")
+                    if attempt % 3 == 2:
+                        await dump(f"04_wait_pw_{attempt+1}")
+                
+                if pw_field is None:
+                    await dump("05_no_password")
+                    raise LoginError("Cannot find password field")
+                
+                await pw_field.fill(password)
+                await asyncio.sleep(2)
+                await dump("05_pw_filled")
+                
+                # Step 6: Submit password
+                await pw_field.press("Enter")
+                await asyncio.sleep(5)
 
-            if pw_input is None:
-                await dump_page("05_no_password")
-                raise LoginError("Cannot find password field")
-
-            await pw_input.wait_for(state="visible", timeout=15000)
-            await pw_input.fill(password)
-            await asyncio.sleep(2)
-            await dump_page("06_pw_filled")
-
-            print("[DEBUG] Clicking final Sign in...")
-            for i in range(min(await page.locator("button").count(), 20)):
-                btn = page.locator("button").nth(i)
-                try:
-                    txt = (await btn.text_content() or "").strip().lower()
-                    if "sign in" in txt:
-                        await btn.click(timeout=5000)
-                        print(f"[DEBUG] Clicked button[{i}]")
-                        break
-                except Exception:
-                    pass
-            await asyncio.sleep(8)
-            await dump_page("07_after_signin")
-
+            # Step 7: Handle MFA
+            await dump("06_after_login")
             if await self._detect_mfa(page):
                 print("[DEBUG] MFA detected")
-                code = input("Enter MFA verification code: ").strip()
+                code = input("Enter MFA code: ").strip()
                 if code:
                     await self._submit_mfa(page, code)
                     await asyncio.sleep(5)
-            await dump_page("08_after_mfa")
 
+            # Step 8: Verify
+            await dump("07_check_mfa")
             logged_in = await self._is_logged_in(page)
             print(f"[DEBUG] Logged in: {logged_in}")
             if not logged_in:
-                await dump_page("09_failed")
+                await dump("08_failed")
                 raise LoginError("Login failed")
 
             await self._save_cookies()
