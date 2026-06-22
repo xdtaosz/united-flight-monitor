@@ -199,7 +199,15 @@ class UnitedScraper:
             else:
                 raise LoginError("Cannot find MP number field")
 
-            print("[DEBUG] Clicking Continue...")
+            # Use keyboard Enter instead of button click
+            print("[DEBUG] Pressing Enter to submit MP...")
+            await asyncio.sleep(2)
+            await page.keyboard.press("Enter")
+            await asyncio.sleep(3)
+            await page.keyboard.press("Enter")
+            await asyncio.sleep(3)
+
+            print("[DEBUG] Clicking Continue as fallback...")
             for sel in [
                 'button:has-text("Continue")',
                 'button:has-text("continue")',
