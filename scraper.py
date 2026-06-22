@@ -530,18 +530,33 @@ class UnitedScraper:
         self._context = await self._playwright.chromium.launch_persistent_context(
             profile_dir,
             headless=self._settings.browser_headless,
-            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--disable-site-isolation-trials",
+            ],
             viewport={"width": 1280, "height": 900},
             user_agent=(
                 "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "Chrome/149.0.0.0 Safari/537.36"
+                "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
             ),
             locale="en-US",
             timezone_id="America/New_York",
+            ignore_https_errors=True,
         )
         await self._context.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', { get: () => false });
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
             window.chrome = { runtime: {} };
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                Promise.resolve({ state: Notification.permission }) :
+                originalQuery(parameters)
+            );
         """)
         return self._context
 
