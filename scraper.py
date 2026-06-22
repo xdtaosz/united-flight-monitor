@@ -172,7 +172,7 @@ class UnitedScraper:
         try:
             # Step 1: Go to homepage and WAIT for React to fully boot
             print("[DEBUG] Loading homepage...")
-            await page.goto(UNITED_BASE + "/en/us/", wait_until="networkidle", timeout=60000)
+            await page.goto(UNITED_BASE + "/en/us/", wait_until="domcontentloaded", timeout=30000)
             print(f"[DEBUG] Homepage loaded, URL: {page.url}")
             # React SPA needs significant time to hydrate
             await asyncio.sleep(10)
