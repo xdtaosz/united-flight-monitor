@@ -161,110 +161,45 @@ class UnitedScraper:
         ctx = await self._ensure_browser()
         page = await ctx.new_page()
         page.set_default_timeout(self._settings.browser_timeout_ms)
-        ddir = self._settings.data_path / "debug"
-        ddir.mkdir(parents=True, exist_ok=True)
-
-        async def dump(label):
-            await page.screenshot(path=str(ddir / f"{label}.png"))
-            html = await page.content()
-            (ddir / f"{label}.html").write_text(html)
 
         try:
-            # Strategy: Go directly to FSR search page. 
-            # If not logged in, United shows an in-page login prompt.
-            from datetime import date
-            search_url = self._build_search_url("SFO", "ORD", date.today(), "business")
-            print(f"[DEBUG] Going to search page to trigger login...")
-            print(f"[DEBUG] URL: {search_url}")
-            await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-            await asyncio.sleep(10)
-            await dump("01_search_page")
+            await page.goto(UNITED_BASE + "/en/us/", wait_until="domcontentloaded", timeout=30000)
+            await asyncio.sleep(5)
+            if await self._is_logged_in(page):
+                print("[DEBUG] Already logged in via cookies")
+                await page.close()
+                return True
 
-            # Check if redirected to login or showing login prompt
-            print(f"[DEBUG] URL after load: {page.url}")
+            if self._settings.browser_headless:
+                print("FIRST RUN: Set HEADLESS=false in .env to open browser for manual login")
+                print("  Then run: python united_monitor.py")
+                print("  Log in manually in the browser window")
+                print("  Close browser, subsequent runs will reuse session")
+                await page.close()
+                raise LoginError("Set HEADLESS=false and run again")
 
-            # Look for password field - if present, MP number was remembered
-            pw = page.locator('input[type="password"]').first
-            pw_c = await pw.count()
-            print(f"[DEBUG] Password fields: {pw_c}")
+            print("[DEBUG] Browser opened for manual login")
+            print("[DEBUG] Log in manually, then close browser window")
+            print("[DEBUG] Waiting up to 5 minutes...")
 
-            if pw_c > 0:
-                print("[DEBUG] Password field visible - MP remembered, filling password...")
-                await pw.fill(password)
-                await asyncio.sleep(2)
-                await dump("02_pw_filled")
-                signin = page.locator('button:has-text("Sign in")').last
-                if await signin.count() > 0:
-                    await signin.click()
-                else:
-                    await pw.press("Enter")
-                await asyncio.sleep(8)
+            for i in range(60):
+                await asyncio.sleep(5)
+                try:
+                    if await self._is_logged_in(page):
+                        print(f"[DEBUG] Login detected after {i*5}s!")
+                        break
+                except Exception:
+                    pass
             else:
-                # Look for MP/email field
-                mp = page.locator('input[name*="MPID"], input[name*="MileagePlus"], input[type="email"]').first
-                mp_c = await mp.count()
-                print(f"[DEBUG] MP/email fields: {mp_c}")
-                
-                if mp_c > 0:
-                    print("[DEBUG] Filling MP number...")
-                    # Type slowly to avoid bot detection
-                    for ch in mp_number:
-                        await mp.press(ch)
-                        await asyncio.sleep(0.1)
-                    await asyncio.sleep(2)
-                    await dump("02_mp_filled")
-                    
-                    # Press Enter
-                    await mp.press("Enter")
-                    await asyncio.sleep(5)
-                    
-                    # Wait for password
-                    print("[DEBUG] Waiting for password...")
-                    pw_f = None
-                    for i in range(10):
-                        await asyncio.sleep(3)
-                        p = page.locator('input[type="password"]').first
-                        if await p.count() > 0:
-                            pw_f = p
-                            print(f"[DEBUG] Password found at attempt {i+1}")
-                            break
-                        if i % 3 == 2:
-                            await dump(f"03_wait_pw_{i+1}")
-                    
-                    if pw_f is None:
-                        await dump("03_no_pw")
-                        raise LoginError("Cannot find password field")
-                    
-                    await pw_f.fill(password)
-                    await asyncio.sleep(2)
-                    await dump("04_pw_filled")
-                    await pw_f.press("Enter")
-                    await asyncio.sleep(5)
-                else:
-                    print("[DEBUG] No login form found on search page")
-                    await dump("01_no_login_form")
-                    raise LoginError("No login form found on search page")
-
-            # MFA
-            await dump("05_after_submit")
-            if await self._detect_mfa(page):
-                print("[DEBUG] MFA detected")
-                code = input("Enter MFA code: ").strip()
-                if code:
-                    await self._submit_mfa(page, code)
-                    await asyncio.sleep(5)
-
-            # Verify
-            logged_in = await self._is_logged_in(page)
-            print(f"[DEBUG] Logged in: {logged_in}")
-            if not logged_in:
-                await dump("06_failed")
-                raise LoginError("Login failed")
+                await page.close()
+                raise LoginError("Manual login timeout")
 
             await self._save_cookies()
             self._bearer_token = await self._capture_bearer_token(ctx)
             if self._bearer_token:
                 await self._save_full_session()
+            print("[DEBUG] Session saved")
+            await page.close()
             return True
 
         finally:
