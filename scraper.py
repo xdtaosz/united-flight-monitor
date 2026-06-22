@@ -227,23 +227,41 @@ class UnitedScraper:
                 await mp_field.press("Enter")
                 await asyncio.sleep(3)
 
-            # Click Continue/Next
-            print(f"[DEBUG] Looking for Continue/Next button...")
-            continued = False
+            # Click Continue/Next — aggressive multi-method
+            print(f"[DEBUG] Looking for Continue/Next button (aggressive)...");
+            continued = False;
             for btn_text in ["Continue", "Next", "Sign in"]:
-                btn = page.locator(f'button:has-text("{btn_text}")').first
-                c = await btn.count()
-                v = await btn.is_visible() if c > 0 else False
-                print(f"[DEBUG]   '{btn_text}': count={c} visible={v}")
-                if c > 0 and v:
-                    await btn.click()
-                    await asyncio.sleep(3)
-                    continued = True
-                    break
+                for sel in [
+                    f'button:has-text("{btn_text}")',
+                    f'a:has-text("{btn_text}")',
+                    f'[role="button"]:has-text("{btn_text}")',
+                    f'span:has-text("{btn_text}")',
+                ]:
+                    btn = page.locator(sel).first;
+                    c = await btn.count();
+                    print(f"[DEBUG]   sel={sel}: count={c}");
+                    if c > 0:
+                        try:
+                            await btn.click(timeout=5000);
+                        except Exception:
+                            try:
+                                await btn.click(force=True, timeout=5000);
+                            except Exception as e2:
+                                print(f"[DEBUG]   click failed: {e2}");
+                                continue;
+                        await asyncio.sleep(3);
+                        continued = True;
+                        break;
+                if continued:
+                    break;
             if not continued:
-                print("[DEBUG] No Continue/Next button clicked")
-
-            await page.screenshot(path=str(ddir / "04_after_continue.png"))
+                print("[DEBUG] Trying JS click on any Continue...");
+                try:
+                    await page.evaluate('document.querySelector("[class*=continue], [id*=continue], button")?.click()');
+                    await asyncio.sleep(3);
+                except Exception as e:
+                    print(f"[DEBUG] JS click failed: {e}");
+            print(f"[DEBUG] Continue clicked: {continued}")
 
             # Find and dump all inputs again
             print(f"[DEBUG] Looking for password field...")
