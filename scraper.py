@@ -537,24 +537,6 @@ class UnitedScraper:
                 ))
         return segments
 
-    # --- Browser lifecycle ---
-def _find_chrome() -> str | None:
-    """Auto-detect system Chrome/Chromium executable."""
-    import shutil
-    import sys
-    for path in (
-        "/usr/bin/google-chrome-stable",
-        "/usr/bin/google-chrome",
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-        "/snap/bin/chromium",
-    ):
-        from pathlib import Path
-        if Path(path).is_file():
-            return path
-    return shutil.which("google-chrome-stable") or shutil.which("google-chrome") or shutil.which("chromium")
-
-
 
     async def _ensure_browser(self) -> BrowserContext:
         if self._context and not self._context.is_closed():
