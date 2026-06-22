@@ -74,6 +74,25 @@ class RateLimitError(Exception):
     pass
 
 
+import shutil
+import sys
+from pathlib import Path
+
+
+def _find_chrome() -> str | None:
+    """Auto-detect system Chrome/Chromium executable."""
+    for p in (
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/snap/bin/chromium",
+    ):
+        if Path(p).is_file():
+            return p
+    return shutil.which("google-chrome-stable") or shutil.which("google-chrome") or shutil.which("chromium")
+
+
 class UnitedScraper:
     def __init__(self):
         from config import settings
