@@ -125,7 +125,7 @@ class UnitedScraper:
             return True
 
         # 2. Try cookie-based login
-        if await self._try_cookie_login():
+        if self.cookie_file.exists() and await self._try_cookie_login():
             return True
 
         # 3. Full login
