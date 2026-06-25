@@ -153,9 +153,7 @@ class UnitedScraper:
         return False
 
     async def _do_login(self) -> bool:
-        mp_number = self._settings.united_mp_number
-        password = self._settings.united_password
-        if not mp_number or not password:
+        if not self._settings.united_mp_number or not self._settings.united_password:
             raise LoginError("UNITED_MP_NUMBER and UNITED_PASSWORD must be set in .env")
 
         ctx = await self._ensure_browser()
@@ -165,41 +163,39 @@ class UnitedScraper:
         try:
             await page.goto(UNITED_BASE + "/en/us/", wait_until="domcontentloaded", timeout=30000)
             await asyncio.sleep(5)
+
             if await self._is_logged_in(page):
-                print("[DEBUG] Already logged in via cookies")
-                await page.close()
+                await self._save_cookies()
+                self._bearer_token = await self._capture_bearer_token(ctx)
+                if self._bearer_token:
+                    await self._save_full_session()
                 return True
 
             if self._settings.browser_headless:
-                print("FIRST RUN: Set HEADLESS=false in .env to open browser for manual login")
-                print("  Then run: python united_monitor.py")
-                print("  Log in manually in the browser window")
-                print("  Close browser, subsequent runs will reuse session")
-                await page.close()
-                raise LoginError("Set HEADLESS=false and run again")
+                print("=" * 60)
+                print("FIRST RUN: Manual login required")
+                print("1. Set HEADLESS=false in .env")
+                print("2. Run: python united_monitor.py")
+                print("3. Browser opens - log in to United.com")
+                print("4. Press ENTER in terminal after login")
+                print("5. Set HEADLESS=true for cron runs")
+                print("=" * 60)
+                raise LoginError("Set HEADLESS=false for first run")
 
-            print("[DEBUG] Browser opened for manual login")
-            print("[DEBUG] Log in manually, then close browser window")
-            print("[DEBUG] Waiting up to 5 minutes...")
-
-            for i in range(60):
-                await asyncio.sleep(5)
-                try:
-                    if await self._is_logged_in(page):
-                        print(f"[DEBUG] Login detected after {i*5}s!")
-                        break
-                except Exception:
-                    pass
-            else:
-                await page.close()
-                raise LoginError("Manual login timeout")
+            print()
+            print("=" * 60)
+            print("MANUAL LOGIN: Browser open. Log in, then press ENTER")
+            print("=" * 60)
+            print()
+            input("Press ENTER after logging in to United.com...")
 
             await self._save_cookies()
             self._bearer_token = await self._capture_bearer_token(ctx)
             if self._bearer_token:
                 await self._save_full_session()
-            print("[DEBUG] Session saved")
-            await page.close()
+            print()
+            print("Session saved. Set HEADLESS=true for future runs.")
+            print()
             return True
 
         finally:
