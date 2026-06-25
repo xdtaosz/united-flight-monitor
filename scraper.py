@@ -519,6 +519,17 @@ class UnitedScraper:
             return self._context
 
         self._playwright = await async_playwright().start()
+        cdp_url = getattr(self._settings, "chrome_cdp_url", "") or ""
+
+        # CDP mode: connect to existing Chrome (bypasses bot detection)
+        if cdp_url:
+            self._context = await self._playwright.chromium.connect_over_cdp(cdp_url)
+            pages = self._context.pages
+            if pages:
+                for p in pages[1:]:
+                    await p.close()
+            return self._context
+
         profile_dir = str(self._settings.data_path / "browser_profile")
 
         self._context = await self._playwright.chromium.launch_persistent_context(
