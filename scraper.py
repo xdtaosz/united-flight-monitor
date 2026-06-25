@@ -159,10 +159,17 @@ class UnitedScraper:
         ctx = await self._ensure_browser()
         page = await ctx.new_page()
         page.set_default_timeout(self._settings.browser_timeout_ms)
+        ddir = self._settings.data_path / "logs"
+        ddir.mkdir(parents=True, exist_ok=True)
 
         try:
             await page.goto(UNITED_BASE + "/en/us/", wait_until="domcontentloaded", timeout=30000)
             await asyncio.sleep(5)
+            # Save page HTML for debugging
+            html = await page.content()
+            (ddir / "login_page.html").write_text(html)
+            page.on("pageerror", lambda err: print(f"[PAGE ERROR] {err}"))
+            page.on("console", lambda msg: print(f"[CONSOLE {msg.type}] {msg.text}") if msg.type in ("error","warning") else None)
 
             if await self._is_logged_in(page):
                 await self._save_cookies()
@@ -521,14 +528,22 @@ class UnitedScraper:
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-features=IsolateOrigins,site-per-process",
+                "--disable-gpu",
+                "--disable-setuid-sandbox",
+                "--disable-infobars",
+                "--disable-component-update",
+                "--disable-features=IsolateOrigins,site-per-process,TranslateUI,BlinkGenPropertyTrees",
                 "--disable-site-isolation-trials",
+                "--disable-web-security",
+                "--disable-features=ChromeWhatsNewUI",
+                "--password-store=basic",
+                "--use-mock-keychain",
             ],
             executable_path=_find_chrome(),
             viewport={"width": 1280, "height": 900},
             user_agent=(
                 "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
             ),
             locale="en-US",
             timezone_id="America/New_York",
@@ -538,13 +553,21 @@ class UnitedScraper:
             Object.defineProperty(navigator, 'webdriver', { get: () => false });
             Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
             Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-            window.chrome = { runtime: {} };
+            Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+            Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+            window.chrome = { runtime: {}, loadTimes: function(){}, csi: function(){} };
             const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
+            window.navigator.permissions.query = (params) => (
+                params.name === 'notifications' ?
                 Promise.resolve({ state: Notification.permission }) :
-                originalQuery(parameters)
+                originalQuery(params)
             );
+            const getParameter = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(p) {
+                if (p === 37445) return 'Intel Inc.';
+                if (p === 37446) return 'Intel Iris OpenGL Engine';
+                return getParameter.call(this, p);
+            };
         """)
         return self._context
 
