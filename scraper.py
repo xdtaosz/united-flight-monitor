@@ -158,15 +158,20 @@ class UnitedScraper:
 
         ctx = await self._ensure_browser()
 
-        # CDP mode: real Chrome already open, just wait for manual login
+        # CDP mode: real Chrome already open, navigate and wait for manual login
         if self._settings.chrome_cdp_url:
             pages = ctx.pages
             page = pages[0] if pages else await ctx.new_page()
             print()
             print("=" * 60)
             print("CDP MODE: Connected to your real Chrome browser")
-            print("Log in to United.com in the browser, then press ENTER")
+            print("Navigating to United.com...")
             print("=" * 60)
+            await page.goto(UNITED_BASE + "/en/us/", wait_until="domcontentloaded", timeout=30000)
+            await asyncio.sleep(3)
+            print()
+            print("Please log in to United.com in the browser")
+            print("After login, press ENTER in this terminal")
             print()
             input("Press ENTER after logging in...")
             await self._save_cookies()
@@ -538,7 +543,7 @@ class UnitedScraper:
             browser = await self._playwright.chromium.connect_over_cdp(cdp_url)
             contexts = browser.contexts
             self._context = contexts[0] if contexts else await browser.new_context()
-            pages = self._context.pages if hasattr(self._context, "pages") else []
+            pages = self._context.pages
             if pages:
                 for p in pages[1:]:
                     await p.close()
