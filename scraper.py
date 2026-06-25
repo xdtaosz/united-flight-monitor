@@ -535,8 +535,10 @@ class UnitedScraper:
 
         # CDP mode: connect to existing Chrome (bypasses bot detection)
         if cdp_url:
-            self._context = await self._playwright.chromium.connect_over_cdp(cdp_url)
-            pages = self._context.pages
+            browser = await self._playwright.chromium.connect_over_cdp(cdp_url)
+            contexts = browser.contexts
+            self._context = contexts[0] if contexts else await browser.new_context()
+            pages = self._context.pages if hasattr(self._context, "pages") else []
             if pages:
                 for p in pages[1:]:
                     await p.close()
