@@ -33,6 +33,7 @@ class Settings(BaseSettings):
 
     # --- Browser settings ---
     browser_headless: bool = True
+    chrome_cdp_url: str = ""
     browser_timeout_ms: int = 90000
     search_delay_seconds: float = 60.0
 
