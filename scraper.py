@@ -157,6 +157,26 @@ class UnitedScraper:
             raise LoginError("UNITED_MP_NUMBER and UNITED_PASSWORD must be set in .env")
 
         ctx = await self._ensure_browser()
+
+        # CDP mode: real Chrome already open, just wait for manual login
+        if self._settings.chrome_cdp_url:
+            pages = ctx.pages
+            page = pages[0] if pages else await ctx.new_page()
+            print()
+            print("=" * 60)
+            print("CDP MODE: Connected to your real Chrome browser")
+            print("Log in to United.com in the browser, then press ENTER")
+            print("=" * 60)
+            print()
+            input("Press ENTER after logging in...")
+            await self._save_cookies()
+            self._bearer_token = await self._capture_bearer_token(ctx)
+            if self._bearer_token:
+                await self._save_full_session()
+            print("Session saved.")
+            print()
+            return True
+
         page = await ctx.new_page()
         page.set_default_timeout(self._settings.browser_timeout_ms)
         ddir = self._settings.data_path / "logs"
@@ -165,11 +185,8 @@ class UnitedScraper:
         try:
             await page.goto(UNITED_BASE + "/en/us/", wait_until="domcontentloaded", timeout=30000)
             await asyncio.sleep(5)
-            # Save page HTML for debugging
             html = await page.content()
             (ddir / "login_page.html").write_text(html)
-            page.on("pageerror", lambda err: print(f"[PAGE ERROR] {err}"))
-            page.on("console", lambda msg: print(f"[CONSOLE {msg.type}] {msg.text}") if msg.type in ("error","warning") else None)
 
             if await self._is_logged_in(page):
                 await self._save_cookies()
@@ -180,28 +197,23 @@ class UnitedScraper:
 
             if self._settings.browser_headless:
                 print("=" * 60)
-                print("FIRST RUN: Manual login required")
-                print("1. Set HEADLESS=false in .env")
-                print("2. Run: python united_monitor.py")
-                print("3. Browser opens - log in to United.com")
-                print("4. Press ENTER in terminal after login")
-                print("5. Set HEADLESS=true for cron runs")
+                print("FIRST RUN: Set HEADLESS=false or use CDP mode")
+                print("CDP: CHROME_CDP_URL=http://localhost:9222")
                 print("=" * 60)
-                raise LoginError("Set HEADLESS=false for first run")
+                raise LoginError("Set HEADLESS=false or use CDP mode")
 
             print()
             print("=" * 60)
-            print("MANUAL LOGIN: Browser open. Log in, then press ENTER")
+            print("MANUAL LOGIN: Log in to United.com, then press ENTER")
             print("=" * 60)
             print()
-            input("Press ENTER after logging in to United.com...")
+            input("Press ENTER after logging in...")
 
             await self._save_cookies()
             self._bearer_token = await self._capture_bearer_token(ctx)
             if self._bearer_token:
                 await self._save_full_session()
-            print()
-            print("Session saved. Set HEADLESS=true for future runs.")
+            print("Session saved.")
             print()
             return True
 
